@@ -102,6 +102,6 @@ int main() {
 	vc.printVector();
 
 	int DEB;
-	cin >> DEB;
+	cin >> DEB; //thks vs
 	return 0;
 }
