@@ -12,13 +12,11 @@
 #include <map>
 #include <unordered_map>
 #include <thread>
+#include <mutex>
 
 using namespace std;
 
-typedef unsigned long long ull;
-typedef long double ld;
 #define ll long long
-#define lli long long int
 #define ull unsigned long long
 #define pb push_back
 #define pp pop_back
@@ -29,6 +27,7 @@ typedef long double ld;
 #define fr2(n,i) for(int i=0;i<n;i+=2)
 #define INFINITY 1e18 + 3
 #define MOD 998244353
+#define BORDER 20
 const int MAX = 100005;
 
 bool parity(int n) { return !(n & 1); }
@@ -39,22 +38,44 @@ template<typename T>
 class ThreadVector {
 private:
 	vector<vector<T>> arr;
-	ll cnt;
+	vector<thread> threads;
+	mutex lock;
+	int _i, _j, cnt;
 
 	void fun(vector<vector<T>> & v) {
-		for (int i = 0; i < v[cnt % v.size()].size(); ++i)
-			v[cnt % v.size()][i]++;
+		for (;;) {
+			{
+				//lock_guard<std::mutex> lock(lock);
+				lock.lock();
+				if (_i >= BORDER) {
+					lock.unlock();
+					break;
+				}
+				v[_i][_j]++;
+				_j++;
+				if (_j == BORDER) {
+					_i++;
+					_j = 0;
+				}
+			}
+			lock.unlock();
+		}
 	}
 
 public:
-	ThreadVector(vector<vector<T>> && v) : arr(move(v)), cnt(0) {}
-	ThreadVector(const vector<vector<T>> & v) : arr(v), cnt(0) {}
+	ThreadVector(vector<vector<T>> && v, int n) : arr(move(v)), _i(0), _j(0), cnt(n) {}
+	ThreadVector(const vector<vector<T>> & v, int n) : arr(v), _i(0), _j(0), cnt(n) {}
 
-	void startThread() {
+	void startThreads() {
 		auto t = [&](vector<vector<T>> & v) { fun(v); };
-		thread thr(t,ref(arr));
-		thr.join();
-		cnt++;
+		fr(cnt, i) {
+			thread thr(t, ref(arr));
+			threads.pb(move(thr));
+		}
+
+		fr(cnt, j)
+			if (threads[j].joinable())
+				threads[j].join();
 	}
 
 	void printVector() {
@@ -71,18 +92,13 @@ int main() {
 	cin.tie(0);
 	cout.tie(0);
 
-	int n, m, k;
-	cin >> n >> m >> k;
-	vector <vector<int>> tmp(n, vector<int>(m));
-	fr(n, i)
-		fr(m, j)
-			tmp[i][j] = j;
+	int n = BORDER, m = BORDER, k;
+	cin >> k;
+	vector<vector<int>> tmp(n, vector<int>(m));
 
-	ThreadVector<int> vc(move(tmp));
+	ThreadVector<int> vc(move(tmp), k);
 
-	fr(k,i)
-		vc.startThread();
-
+	vc.startThreads();
 	vc.printVector();
 
 	int DEB;
