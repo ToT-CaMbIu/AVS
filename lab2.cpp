@@ -15,10 +15,8 @@
 
 using namespace std;
 
-typedef unsigned long long ull;
 typedef long double ld;
 #define ll long long
-#define lli long long int
 #define ull unsigned long long
 #define pb push_back
 #define pp pop_back
