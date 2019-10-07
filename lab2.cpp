@@ -49,7 +49,7 @@ public:
 	ThreadVector(const vector<vector<T>> & v) : arr(v), cnt(0) {}
 
 	void startThread() {
-		auto t = [&](vector<vector<T>> & v) { fun(v); };
+		auto t = [&](vector<vector<T>> & v) { fun(v); }; //try to make without lambda
 		thread thr(t,ref(arr));
 		thr.join();
 		cnt++;
@@ -84,6 +84,6 @@ int main() {
 	vc.printVector();
 
 	int DEB;
-	cin >> DEB;
+	cin >> DEB; //thks vs
 	return 0;
 }
