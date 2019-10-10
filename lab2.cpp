@@ -146,7 +146,7 @@ public:
 };
 
 template<typename T>
-class ThreadQueue {
+class ThreadQueueM {
 private:
 	vector<T> q;
 	int p_num, t_num, c_num, ind = 0, sum = 0;
@@ -154,10 +154,12 @@ private:
 	condition_variable condition;
 	bool done = false;
 	queue<int> indexies;
+	int push_cnt = 0;
 
 public:
-	ThreadQueue(int size, int t_num, int p_num, int c_num) : t_num(t_num), p_num(p_num), c_num(c_num)
+	ThreadQueueM(int size, int t_num, int p_num, int c_num) : t_num(t_num), p_num(p_num), c_num(c_num)
 	{
+		//this->c_num = min(c_num, p_num);
 		q.resize(size);
 	}
 
@@ -168,31 +170,38 @@ public:
 			return;
 		if (!indexies.size())
 			condition.wait(lock);
-		if (!indexies.size()) // if there is waiting thread here
+		if (!indexies.size())
 			return;
 		auto tmp = indexies.front();
 		indexies.pop();
 		for (int i = tmp; i >= max(tmp - t_num + 1, 0); --i) {
-			cout << "pop " << i << endl;
+			//cout << "pop " << i << endl;
 			sum += q[i];
+			q[i]--;
 		}
+		//cout << "sum " << sum << endl;
 	}
 
 	void push()
 	{
 		unique_lock<mutex> lock(ph);
 		if (ind >= q.size()) {
+			ind = 0;
+			this_thread::sleep_for(chrono::milliseconds(5));
+		}
+		for (int i = ind; i <= min(ind + t_num - 1, (int)q.size() - 1); ++i) {
+			q[i]++;
+			//cout << "push " << i << endl;
+		}
+		indexies.push(min(ind + t_num - 1, (int)q.size() - 1));
+		ind += t_num;
+		push_cnt++;
+		condition.notify_one();
+		if (push_cnt >= p_num) {
 			done = true;
 			condition.notify_one();
 			return;
 		}
-		for (int i = ind; i <= min(ind + t_num - 1, (int)q.size() - 1); ++i) {
-			cout << "push " << i << endl;
-			q[i]++;
-		}
-		indexies.push(min(ind + t_num - 1, (int)q.size() - 1));
-		ind += t_num;
-		condition.notify_one();
 	}
 
 	void startThreads()
@@ -229,21 +238,24 @@ int main() {
 	cin.tie(0);
 	cout.tie(0);
 
-	//int n = BORDER, m = BORDER, k;
-	//cin >> k;
-	//vector<vector<int>> tmp(n, vector<int>(m));
+	int DEBUG = 2;
 
-	//ThreadVector<int> vc(move(tmp), k);
-	//vc.startThreads();
-	//vc.printVector();
-	//vc.printTime();
-	//vc.startThreadsA();
-	//vc.printVector();
-	//uint8_t
+	if (DEBUG == 1) {
+		int n = BORDER, m = BORDER, k;
+		cin >> k;
+		vector<vector<int>> tmp(n, vector<int>(m));
 
-	ThreadQueue<uint8_t> q(4 * 1024 * 1024, 1e6, 4, 4);
-	q.startThreads();
-	cout << q.returnSum() << endl;
+		ThreadVector<int> vc(move(tmp), k);
+		vc.startThreadsA();
+		vc.printVector();
+	}
+
+	if (DEBUG == 2) {
+		ThreadQueueM<uint8_t> q(4 * 1024 * 1024, 1024 * 1024, 4, 5);
+		//ThreadQueueM<uint8_t> q(50, 10, 6, 6);
+		q.startThreads();
+		cout << q.returnSum() << endl;
+	}
 
 	int DEB;
 	cin >> DEB;
