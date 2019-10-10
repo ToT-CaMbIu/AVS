@@ -14,6 +14,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <condition_variable>
 
 using namespace std;
 
@@ -46,7 +47,8 @@ private:
 	atomic<int> __i, __j;
 	queue<pair<int, int>> q;
 
-	void funM(vector<vector<T>> & v) {
+	void funM(vector<vector<T>> & v)
+	{
 		for (;;) {
 			lock.lock();
 			time_t start, end;
@@ -68,7 +70,8 @@ private:
 		}
 	}
 
-	void funA(vector<vector<T>> & v) {
+	void funA(vector<vector<T>> & v)
+	{
 		for (;;) {
 			while (q.empty() && __i < BORDER) { this_thread::yield(); }
 			if (__i >= BORDER)
@@ -83,8 +86,8 @@ private:
 			int l = tmp.first;
 			int r = tmp.second;
 			v[l][r]++;
-			this_thread::sleep_for(chrono::nanoseconds(10));
 			lock.unlock();
+			this_thread::sleep_for(chrono::nanoseconds(10));
 			__j++;
 			if (__j >= BORDER) {
 				__i++;
@@ -100,7 +103,8 @@ public:
 	ThreadVector(vector<vector<T>> && v, int n) : arr(move(v)), _i(0), _j(-1), __i(0), __j(0), cnt(n) { q.push({ 0,0 }); }
 	ThreadVector(const vector<vector<T>> & v, int n) : arr(v), _i(0), _j(-1), __i(0), __j(0), cnt(n) { q.push({ 0,0 }); }
 
-	void startThreadsM() {
+	void startThreadsM()
+	{
 		auto t = [&](vector<vector<T>> & v) { funM(v); };
 		fr(cnt, i) {
 			thread thr(t, ref(arr));
@@ -112,7 +116,8 @@ public:
 				threads[j].join();
 	}
 
-	void startThreadsA() {
+	void startThreadsA()
+	{
 		auto t = [&](vector<vector<T>> & v) { funA(v); };
 		fr(cnt, i) {
 			thread thr(t, ref(arr));
@@ -124,7 +129,8 @@ public:
 				threads[j].join();
 	}
 
-	void printVector() {
+	void printVector()
+	{
 		fr(arr.size(), i) {
 			fr(arr[0].size(), j)
 				cout << arr[i][j];
@@ -132,9 +138,89 @@ public:
 		}
 	}
 
-	void printTime() {
+	void printTime()
+	{
 		for (auto i = tm.begin(); i != tm.end(); ++i)
 			cout << i->first << " " << i->second << endl;
+	}
+};
+
+template<typename T>
+class ThreadQueue {
+private:
+	vector<T> q;
+	int p_num, t_num, c_num, ind = 0, sum = 0;
+	mutex ph, p;
+	condition_variable condition;
+	bool done = false;
+	queue<int> indexies;
+
+public:
+	ThreadQueue(int size, int t_num, int p_num, int c_num) : t_num(t_num), p_num(p_num), c_num(c_num)
+	{
+		q.resize(size);
+	}
+
+	void pop()
+	{
+		unique_lock<mutex> lock(p);
+		if (!indexies.size() && done)
+			return;
+		if (!indexies.size())
+			condition.wait(lock);
+		if (!indexies.size()) // if there is waiting thread here
+			return;
+		auto tmp = indexies.front();
+		indexies.pop();
+		for (int i = tmp; i >= max(tmp - t_num + 1, 0); --i) {
+			cout << "pop " << i << endl;
+			sum += q[i];
+		}
+	}
+
+	void push()
+	{
+		unique_lock<mutex> lock(ph);
+		if (ind >= q.size()) {
+			done = true;
+			condition.notify_one();
+			return;
+		}
+		for (int i = ind; i <= min(ind + t_num - 1, (int)q.size() - 1); ++i) {
+			cout << "push " << i << endl;
+			q[i]++;
+		}
+		indexies.push(min(ind + t_num - 1, (int)q.size() - 1));
+		ind += t_num;
+		condition.notify_one();
+	}
+
+	void startThreads()
+	{
+		vector<thread> threadsPH, threadsP;
+		auto ph = [&]() { push(); };
+		auto p = [&]() { pop(); };
+
+		fr(p_num, i) {
+			thread thr(ph);
+			threadsPH.pb(move(thr));
+		}
+
+		fr(c_num, i) {
+			thread thr(p);
+			threadsP.pb(move(thr));
+		}
+
+		fr(p_num, i)
+			if (threadsPH[i].joinable())
+				threadsPH[i].join();
+		fr(c_num, i)
+			if (threadsP[i].joinable())
+				threadsP[i].join();
+	}
+
+	int returnSum() {
+		return sum;
 	}
 };
 
@@ -143,16 +229,21 @@ int main() {
 	cin.tie(0);
 	cout.tie(0);
 
-	int n = BORDER, m = BORDER, k;
-	cin >> k;
-	vector<vector<int>> tmp(n, vector<int>(m));
+	//int n = BORDER, m = BORDER, k;
+	//cin >> k;
+	//vector<vector<int>> tmp(n, vector<int>(m));
 
-	ThreadVector<int> vc(move(tmp), k);
+	//ThreadVector<int> vc(move(tmp), k);
 	//vc.startThreads();
 	//vc.printVector();
 	//vc.printTime();
-	vc.startThreadsA();
-	vc.printVector();
+	//vc.startThreadsA();
+	//vc.printVector();
+	//uint8_t
+
+	ThreadQueue<uint8_t> q(4 * 1024 * 1024, 1e6, 4, 4);
+	q.startThreads();
+	cout << q.returnSum() << endl;
 
 	int DEB;
 	cin >> DEB;
