@@ -40,7 +40,7 @@ class ThreadVector {
 private:
 	vector<vector<T>> arr;
 	vector<thread> threads;
-	unordered_map<thread::id,double> tm;
+	unordered_map<thread::id, double> tm;
 	mutex lock;
 	int _i, _j, cnt;
 	atomic<int> __i, __j;
@@ -70,28 +70,27 @@ private:
 
 	void funA(vector<vector<T>> & v) {
 		for (;;) {
-			int l = 0, r = 0;
-			lock.lock();
 			while (q.empty() && __i < BORDER) { this_thread::yield(); }
-			if (__i >= BORDER) {
+			if (__i >= BORDER)
+				break;
+			lock.lock();
+			if (q.empty()) {
 				lock.unlock();
 				break;
 			}
 			auto tmp = q.front();
 			q.pop();
-			l = tmp.first;
-			r = tmp.second;
-			if (l < BORDER && r < BORDER) {
-				v[l][r]++;
-				this_thread::sleep_for(chrono::nanoseconds(10));
-			}
+			int l = tmp.first;
+			int r = tmp.second;
+			v[l][r]++;
+			this_thread::sleep_for(chrono::nanoseconds(10));
 			lock.unlock();
 			__j++;
-			if (__j.load() >= BORDER) {
+			if (__j >= BORDER) {
 				__i++;
 				__j = 0;
 			}
-			if (__i.load() >= BORDER)
+			if (__i >= BORDER)
 				break;
 			q.push({ __i,__j });
 		}
@@ -156,6 +155,6 @@ int main() {
 	vc.printVector();
 
 	int DEB;
-	cin >> DEB; //thks vs
+	cin >> DEB;
 	return 0;
 }
