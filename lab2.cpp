@@ -40,12 +40,12 @@ template<typename T>
 class ThreadVector {
 private:
 	vector<vector<T>> arr;
+	vector<T> arr_atomic;
 	vector<thread> threads;
 	unordered_map<thread::id, double> tm;
 	mutex lock;
-	int _i, _j, cnt;
-	atomic<int> __i, __j;
-	queue<pair<int, int>> q;
+	int _i, cnt;
+	atomic<int> __i = 0;
 
 	void funM(vector<vector<T>> & v)
 	{
@@ -53,16 +53,12 @@ private:
 			lock.lock();
 			time_t start, end;
 			time(&start);
-			_j++;
-			if (_j == BORDER) {
-				_i++;
-				_j = 0;
-			}
-			if (_i >= BORDER) {
+			_i++;
+			if (_i >= BORDER * BORDER) {
 				lock.unlock();
 				break;
 			}
-			v[_i][_j]++;
+			arr_atomic[_i]++;
 			this_thread::sleep_for(chrono::nanoseconds(10));
 			time(&end);
 			tm[this_thread::get_id()] += (double)(difftime(end, start));
@@ -70,38 +66,21 @@ private:
 		}
 	}
 
-	void funA(vector<vector<T>> & v)
-	{
+	void funA(vector<T> & v) {
 		for (;;) {
-			while (q.empty() && __i < BORDER) { this_thread::yield(); }
-			if (__i >= BORDER)
-				break;
-			lock.lock();
-			if (q.empty()) {
-				lock.unlock();
-				break;
-			}
-			auto tmp = q.front();
-			q.pop();
-			int l = tmp.first;
-			int r = tmp.second;
-			v[l][r]++;
-			lock.unlock();
+			auto tmp = __i.fetch_add(1, memory_order_relaxed);
+			if (tmp >= BORDER * BORDER)
+				return;
+			v[tmp]++;
 			this_thread::sleep_for(chrono::nanoseconds(10));
-			__j++;
-			if (__j >= BORDER) {
-				__i++;
-				__j = 0;
-			}
-			if (__i >= BORDER)
-				break;
-			q.push({ __i,__j });
 		}
 	}
 
 public:
-	ThreadVector(vector<vector<T>> && v, int n) : arr(move(v)), _i(0), _j(-1), __i(0), __j(0), cnt(n) { q.push({ 0,0 }); }
-	ThreadVector(const vector<vector<T>> & v, int n) : arr(v), _i(0), _j(-1), __i(0), __j(0), cnt(n) { q.push({ 0,0 }); }
+	ThreadVector(vector<vector<T>> && v, int n) : arr(move(v)), _i(-1), __i(0), cnt(n) { }
+	ThreadVector(const vector<vector<T>> & v, int n) : arr(v), _i(-1), __i(0), cnt(n) { }
+	ThreadVector(vector<T> && v, int n) : arr_atomic(move(v)), _i(-1), __i(0), cnt(n) { }
+	ThreadVector(const vector<T> & v, int n) : arr_atomic(v), _i(-1), __i(0), cnt(n) {  }
 
 	void startThreadsM()
 	{
@@ -116,11 +95,11 @@ public:
 				threads[j].join();
 	}
 
-	void startThreadsA()
+	void startThreadsALinear()
 	{
-		auto t = [&](vector<vector<T>> & v) { funA(v); };
+		auto t = [&](vector<T> & v) { funA(v); };
 		fr(cnt, i) {
-			thread thr(t, ref(arr));
+			thread thr(t, ref(arr_atomic));
 			threads.pb(move(thr));
 		}
 
@@ -138,6 +117,12 @@ public:
 		}
 	}
 
+	void printLinear() {
+		fr(arr_atomic.size(), i)
+			cout << arr_atomic[i] << " ";
+		cout << endl;
+	}
+
 	void printTime()
 	{
 		for (auto i = tm.begin(); i != tm.end(); ++i)
@@ -148,60 +133,60 @@ public:
 template<typename T>
 class ThreadQueueM {
 private:
-	vector<T> q;
-	int p_num, t_num, c_num, ind = 0, sum = 0;
-	mutex ph, p;
-	condition_variable condition;
-	bool done = false;
-	queue<int> indexies;
-	int push_cnt = 0;
+	vector<int> q;
+	int p_num, t_num, c_num, size, ind = 0, ind1 = 0;
+	mutex ph, p, lockph, lockp;
+	condition_variable conditionPH, conditionP;
+	atomic<int> cur = 0;
+	int sum = 0;
+	bool flg;
 
 public:
-	ThreadQueueM(int size, int t_num, int p_num, int c_num) : t_num(t_num), p_num(p_num), c_num(c_num)
+	ThreadQueueM(int size, int t_num, int p_num, int c_num) : t_num(t_num), p_num(p_num), c_num(c_num), size(size)
 	{
-		//this->c_num = min(c_num, p_num);
 		q.resize(size);
+		fr(q.size(), i)
+			q[i] = 0;
+		flg = false;
 	}
 
 	void pop()
 	{
-		unique_lock<mutex> lock(p);
-		if (!indexies.size() && done)
-			return;
-		if (!indexies.size())
-			condition.wait(lock);
-		if (!indexies.size())
-			return;
-		auto tmp = indexies.front();
-		indexies.pop();
-		for (int i = tmp; i >= max(tmp - t_num + 1, 0); --i) {
-			//cout << "pop " << i << endl;
-			sum += q[i];
-			q[i]--;
+		lockp.lock();
+		for (int i = (ind1 % size), j = 0; j < t_num; ++i, ++j) {
+			unique_lock<mutex> lock(p);
+			while (cur.load() <= 0) {
+				conditionP.wait(lock);
+			}
+			if (!q[i % size])
+				this_thread::sleep_for(chrono::milliseconds(1));
+			sum += q[i % size];
+			q[i % size] = 0;
+			cur--;
+			conditionPH.notify_all();
 		}
-		//cout << "sum " << sum << endl;
+		ind1 += t_num;
+		ind1 %= t_num;
+		lockp.unlock();
 	}
 
 	void push()
 	{
-		unique_lock<mutex> lock(ph);
-		if (ind >= q.size()) {
-			ind = 0;
-			this_thread::sleep_for(chrono::milliseconds(5));
+		lockph.lock();
+		for (int i = (ind % size), j = 0; j < t_num; ++i, ++j) {
+			unique_lock<mutex> lock(p);
+			while (cur.load() >= size) {
+				conditionPH.wait(lock);
+			}
+			if (q[i % size])
+				this_thread::sleep_for(chrono::milliseconds(1));
+			q[i % size] = 1;
+			cur++;
+			conditionP.notify_all();
 		}
-		for (int i = ind; i <= min(ind + t_num - 1, (int)q.size() - 1); ++i) {
-			q[i]++;
-			//cout << "push " << i << endl;
-		}
-		indexies.push(min(ind + t_num - 1, (int)q.size() - 1));
 		ind += t_num;
-		push_cnt++;
-		condition.notify_one();
-		if (push_cnt >= p_num) {
-			done = true;
-			condition.notify_one();
-			return;
-		}
+		ind %= t_num;
+		lockph.unlock();
 	}
 
 	void startThreads()
@@ -233,26 +218,215 @@ public:
 	}
 };
 
+template<typename T>
+class ThreadQueueA
+{
+private:
+	vector<T> q;
+	int p_num, t_num, c_num, size;
+	atomic<int> sum, curSizePH = 0, curSizeP = 0;
+	mutex lock, lock1, locktest1;
+	atomic<T> ind1 = 0, ind2 = 0;
+
+public:
+	ThreadQueueA(int size, int t_num, int p_num, int c_num) : t_num(t_num), p_num(p_num), c_num(c_num), size(size)
+	{
+		q.resize(size);
+	}
+
+	void pop()
+	{
+		for (;;) {
+			{
+				unique_lock<mutex> un(lock1);
+				if (curSizeP.load() >= c_num * t_num)
+					return;
+			}
+			T i = ind2.load(memory_order_relaxed);
+			while (!ind2.compare_exchange_weak(
+				i,
+				(ind2 + 1) % q.size(),
+				std::memory_order_release,
+				std::memory_order_relaxed));
+			{
+				unique_lock<mutex> un(locktest1);
+				if (!q[(i % q.size())])
+					continue;
+				sum += q[(i % q.size())];
+				q[(i % q.size())] = 0;
+			}
+			curSizeP++;
+		}
+	}
+
+	void push()
+	{
+		for (;;) {
+			{
+				unique_lock<mutex> un(lock);
+				if (curSizePH.load() >= p_num * t_num)
+					return;
+			}
+			T i = ind1.load(memory_order_relaxed);
+			while (!ind1.compare_exchange_weak(
+				i,
+				(ind1 + 1) % q.size(),
+				std::memory_order_release,
+				std::memory_order_relaxed));
+			{
+				unique_lock<mutex> un(locktest1);
+				if (q[(i % q.size())])
+					continue;
+				q[(i % q.size())]++;
+			}
+			curSizePH++;
+		}
+	}
+
+	void print() {
+		int ans = 0;
+		fr(q.size(), i)
+			cout << q[i] << " ", ans += q[i];
+		cout << endl;
+		cout << ans << endl;
+	}
+
+	void startThreads()
+	{
+		vector<thread> threadsPH, threadsP;
+		auto ph = [&]() { push(); };
+		auto p = [&]() { pop(); };
+
+		fr(p_num, i) {
+			thread thr(ph);
+			threadsPH.pb(move(thr));
+		}
+
+		fr(c_num, i) {
+			thread thr(p);
+			threadsP.pb(move(thr));
+		}
+
+		fr(p_num, i)
+			if (threadsPH[i].joinable())
+				threadsPH[i].join();
+
+		fr(c_num, i)
+			if (threadsP[i].joinable())
+				threadsP[i].join();
+	}
+
+	int returnSum() {
+		return sum;
+	}
+};
+
+template<typename T>
+class ThreadQueue
+{
+private:
+	queue<T> q;
+	mutex lock1, lock2, lock3;
+	int p_num, t_num, c_num, i = 0, j = 0;
+	ll sum = 0;
+
+public:
+	ThreadQueue(int t_num, int p_num, int c_num) : t_num(t_num), p_num(p_num), c_num(c_num) {}
+
+	void pop()
+	{
+		lock2.lock();
+		while (i >= j * t_num) {
+			if (j >= p_num && q.empty()) {
+				lock2.unlock();
+				return;
+			}
+		}
+		fr(t_num, k) {
+			lock3.lock();
+			sum += q.front();
+			q.pop();
+			lock3.unlock();
+		}
+		i++;
+		lock2.unlock();
+	}
+
+	void push()
+	{
+		lock1.lock();
+		fr(t_num, k) {
+			lock3.lock();
+			q.push(1);
+			lock3.unlock();
+		}
+		j++;
+		lock1.unlock();
+	}
+
+	void startThreads()
+	{
+		vector<thread> threadsPH, threadsP;
+		auto ph = [&]() { push(); };
+		auto p = [&]() { pop(); };
+
+		fr(p_num, i) {
+			thread thr(ph);
+			threadsPH.pb(move(thr));
+		}
+
+		fr(c_num, i) {
+			thread thr(p);
+			threadsP.pb(move(thr));
+		}
+
+		fr(p_num, i)
+			if (threadsPH[i].joinable())
+				threadsPH[i].join();
+		fr(c_num, i)
+			if (threadsP[i].joinable())
+				threadsP[i].join();
+	}
+
+	ll returnSum() {
+		return sum;
+	}
+};
+
 int main() {
 	ios_base::sync_with_stdio(false);
 	cin.tie(0);
 	cout.tie(0);
 
-	int DEBUG = 2;
+	int DEBUG = 3;
 
 	if (DEBUG == 1) {
 		int n = BORDER, m = BORDER, k;
 		cin >> k;
 		vector<vector<int>> tmp(n, vector<int>(m));
+		vector<int> tm(n * n);
 
-		ThreadVector<int> vc(move(tmp), k);
-		vc.startThreadsA();
-		vc.printVector();
+		ThreadVector<int> vc(move(tm), k); // <1 for atomic and <10 for lock
+		vc.startThreadsM();
+		//vc.startThreadsALinear();
+		//vc.printLinear();
+		vc.printTime();
 	}
 
 	if (DEBUG == 2) {
-		ThreadQueueM<uint8_t> q(4 * 1024 * 1024, 1024 * 1024, 4, 5);
-		//ThreadQueueM<uint8_t> q(50, 10, 6, 6);
+		ThreadQueueM<uint8_t> q(4, 1024 * 1024, 4, 4); //1.10
+		q.startThreads();
+		cout << q.returnSum() << endl;
+	}
+
+	if (DEBUG == 3) {
+		ThreadQueue<uint8_t> q(4 * 1024 * 1024, 4, 4);//1.20
+		q.startThreads();
+		cout << q.returnSum() << endl;
+	}
+
+	if (DEBUG == 4) {
+		ThreadQueueA<int> q(16, 1024 * 1024 * 4, 2, 2);//1.37
 		q.startThreads();
 		cout << q.returnSum() << endl;
 	}
