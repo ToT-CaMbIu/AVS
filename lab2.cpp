@@ -15,6 +15,7 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
+#include <iomanip>
 
 using namespace std;
 
@@ -51,17 +52,12 @@ private:
 	{
 		for (;;) {
 			lock.lock();
-			time_t start, end;
-			time(&start);
 			_i++;
 			if (_i >= BORDER * BORDER) {
 				lock.unlock();
 				break;
 			}
 			arr_atomic[_i]++;
-			this_thread::sleep_for(chrono::nanoseconds(10));
-			time(&end);
-			tm[this_thread::get_id()] += (double)(difftime(end, start));
 			lock.unlock();
 		}
 	}
@@ -72,7 +68,6 @@ private:
 			if (tmp >= BORDER * BORDER)
 				return;
 			v[tmp]++;
-			this_thread::sleep_for(chrono::nanoseconds(10));
 		}
 	}
 
@@ -85,6 +80,7 @@ public:
 	void startThreadsM()
 	{
 		auto t = [&](vector<vector<T>> & v) { funM(v); };
+		auto start = chrono::high_resolution_clock::now();
 		fr(cnt, i) {
 			thread thr(t, ref(arr));
 			threads.pb(move(thr));
@@ -93,11 +89,15 @@ public:
 		fr(cnt, j)
 			if (threads[j].joinable())
 				threads[j].join();
+		auto stop = chrono::high_resolution_clock::now();
+		auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
+		cout << duration.count() << endl;
 	}
 
 	void startThreadsALinear()
 	{
 		auto t = [&](vector<T> & v) { funA(v); };
+		auto start = chrono::high_resolution_clock::now();
 		fr(cnt, i) {
 			thread thr(t, ref(arr_atomic));
 			threads.pb(move(thr));
@@ -106,6 +106,9 @@ public:
 		fr(cnt, j)
 			if (threads[j].joinable())
 				threads[j].join();
+		auto stop = chrono::high_resolution_clock::now();
+		auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
+		cout << duration.count() << endl;
 	}
 
 	void printVector()
@@ -137,6 +140,7 @@ private:
 	int p_num, t_num, c_num, size, ind = 0, ind1 = 0;
 	mutex ph, p, lockph, lockp;
 	condition_variable conditionPH, conditionP;
+	atomic<int> curSizePH = 0, curSizeP = 0;
 	atomic<int> cur = 0;
 	int sum = 0;
 	bool flg;
@@ -152,41 +156,64 @@ public:
 
 	void pop()
 	{
-		lockp.lock();
-		for (int i = (ind1 % size), j = 0; j < t_num; ++i, ++j) {
+		for (;;) {
 			unique_lock<mutex> lock(p);
+			if (curSizeP.load() >= c_num * t_num) {
+				conditionPH.notify_all();
+				return;
+			}
 			while (cur.load() <= 0) {
+				if (curSizeP.load() >= c_num * t_num) {
+					conditionPH.notify_all();
+					return;
+				}
 				conditionP.wait(lock);
 			}
-			if (!q[i % size])
+			if (curSizeP.load() >= c_num * t_num) {
+				conditionPH.notify_all();
+				return;
+			}
+			if (!q[ind % size])
 				this_thread::sleep_for(chrono::milliseconds(1));
-			sum += q[i % size];
-			q[i % size] = 0;
+			sum += q[ind % size];
+			q[ind % size] = 0;
 			cur--;
 			conditionPH.notify_all();
+			ind++;
+			ind %= size;
+			curSizeP++;
 		}
-		ind1 += t_num;
-		ind1 %= t_num;
-		lockp.unlock();
 	}
 
 	void push()
 	{
-		lockph.lock();
-		for (int i = (ind % size), j = 0; j < t_num; ++i, ++j) {
+		for (;;) {
 			unique_lock<mutex> lock(p);
-			while (cur.load() >= size) {
+			if (curSizePH.load() >= p_num * t_num) {
+				conditionP.notify_all();
+				conditionPH.notify_all();
+				return;
+			}
+			while (cur.load() >= 4) {
+				if (curSizePH.load() >= p_num * t_num) {
+					conditionPH.notify_all();
+					return;
+				}
 				conditionPH.wait(lock);
 			}
-			if (q[i % size])
+			if (curSizePH.load() >= p_num * t_num) {
+				conditionPH.notify_all();
+				return;
+			}
+			if (q[ind1 % size])
 				this_thread::sleep_for(chrono::milliseconds(1));
-			q[i % size] = 1;
+			q[ind1 % size] = 1;
 			cur++;
 			conditionP.notify_all();
+			ind1++;
+			ind1 %= size;
+			curSizePH++;
 		}
-		ind += t_num;
-		ind %= t_num;
-		lockph.unlock();
 	}
 
 	void startThreads()
@@ -398,23 +425,23 @@ int main() {
 	cin.tie(0);
 	cout.tie(0);
 
-	int DEBUG = 3;
+	int DEBUG = 2;
 
 	if (DEBUG == 1) {
 		int n = BORDER, m = BORDER, k;
 		cin >> k;
-		vector<vector<int>> tmp(n, vector<int>(m));
 		vector<int> tm(n * n);
 
-		ThreadVector<int> vc(move(tm), k); // <1 for atomic and <10 for lock
+		ThreadVector<int> vc(tm, k); // <1 for atomic and <10 for lock
 		vc.startThreadsM();
-		//vc.startThreadsALinear();
+		ThreadVector<int> c(tm, k);
+		c.startThreadsALinear();
 		//vc.printLinear();
-		vc.printTime();
+		//vc.printTime();
 	}
 
 	if (DEBUG == 2) {
-		ThreadQueueM<uint8_t> q(4, 1024 * 1024, 4, 4); //1.10
+		ThreadQueueM<int> q(4, 1024 * 100, 4, 4); //1.10
 		q.startThreads();
 		cout << q.returnSum() << endl;
 	}
@@ -431,7 +458,5 @@ int main() {
 		cout << q.returnSum() << endl;
 	}
 
-	int DEB;
-	cin >> DEB;
 	return 0;
 }
