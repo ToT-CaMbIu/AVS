@@ -48,9 +48,9 @@ pair<T, ll> parallel(vector<T> & a, vector<T> & b) {
 		T local_ans = 0;
 #pragma omp for schedule(static)
 		fr(n, i)
-			local_ans += (a[i] * b[i]) % MOD;
+			local_ans = (local_ans + a[i] * b[i]) % MOD;
 #pragma omp atomic
-		ans += local_ans;
+		ans = (ans + local_ans) % MOD;
 	}
 	auto stop = chrono::high_resolution_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
@@ -63,7 +63,7 @@ pair<T, ll> consistent(vector<T> & a, vector<T> & b) {
 	T ans = 0;
 	int n = min(a.size(), b.size());
 	fr(n, i)
-		ans += (a[i] * b[i]) % MOD;
+		ans = (ans + a[i] * b[i]) % MOD;
 	auto stop = chrono::high_resolution_clock::now();
 	auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
 	return { ans % MOD, duration.count() };
