@@ -85,8 +85,6 @@ int main() {
 	cout << t.first << " " << t.second << endl;
 	t = consistent(a, b);
 	cout << t.first << " " << t.second << endl;
-
-	int DEB;
-	cin >> DEB;
+	
 	return 0;
 }
