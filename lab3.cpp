@@ -43,13 +43,12 @@ pair<T, ll> parallel(vector<T> & a, vector<T> & b) {
 	auto start = chrono::high_resolution_clock::now();
 	T ans = 0;
 	int n = min(a.size(), b.size());
-#pragma omp parallel
+#pragma omp parallel reduction (+:ans)
 	{
 		T local_ans = 0;
 #pragma omp for schedule(static)
 		fr(n, i)
 			local_ans = (local_ans + a[i] * b[i]) % MOD;
-#pragma omp atomic
 		ans = (ans + local_ans) % MOD;
 	}
 	auto stop = chrono::high_resolution_clock::now();
@@ -86,7 +85,5 @@ int main() {
 	t = consistent(a, b);
 	cout << t.first << " " << t.second << endl;
 
-	int DEB;
-	cin >> DEB;
 	return 0;
 }
