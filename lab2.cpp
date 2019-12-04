@@ -361,7 +361,7 @@ public:
 	void pop()
 	{
 		lock2.lock();
-		while (i >= j * t_num) {
+		while (i >= j) {
 			if (j >= p_num && q.empty()) {
 				lock2.unlock();
 				return;
