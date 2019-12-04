@@ -157,7 +157,7 @@ public:
 	void pop()
 	{
 		for (;;) {
-			unique_lock<mutex> lock(p);
+			unique_lock<mutex> lock(lockp);
 			if (curSizeP.load() >= c_num * t_num) {
 				conditionPH.notify_all();
 				return;
@@ -188,7 +188,7 @@ public:
 	void push()
 	{
 		for (;;) {
-			unique_lock<mutex> lock(p);
+			unique_lock<mutex> lock(lockph);
 			if (curSizePH.load() >= p_num * t_num) {
 				conditionP.notify_all();
 				conditionPH.notify_all();
@@ -264,11 +264,8 @@ public:
 	void pop()
 	{
 		for (;;) {
-			{
-				unique_lock<mutex> un(lock1);
-				if (curSizeP.load() >= c_num * t_num)
-					return;
-			}
+			if (curSizeP.load() >= c_num * t_num)
+				return;
 			T i = ind2.load(memory_order_relaxed);
 			while (!ind2.compare_exchange_weak(
 				i,
@@ -277,6 +274,8 @@ public:
 				std::memory_order_relaxed));
 			{
 				unique_lock<mutex> un(locktest1);
+				if (curSizeP.load() >= c_num * t_num)
+					return;
 				if (!q[(i % q.size())])
 					continue;
 				sum += q[(i % q.size())];
@@ -289,11 +288,8 @@ public:
 	void push()
 	{
 		for (;;) {
-			{
-				unique_lock<mutex> un(lock);
-				if (curSizePH.load() >= p_num * t_num)
-					return;
-			}
+			if (curSizePH.load() >= p_num * t_num)
+				return;
 			T i = ind1.load(memory_order_relaxed);
 			while (!ind1.compare_exchange_weak(
 				i,
@@ -302,6 +298,8 @@ public:
 				std::memory_order_relaxed));
 			{
 				unique_lock<mutex> un(locktest1);
+				if (curSizePH.load() >= p_num * t_num)
+					return;
 				if (q[(i % q.size())])
 					continue;
 				q[(i % q.size())]++;
@@ -425,7 +423,7 @@ int main() {
 	cin.tie(0);
 	cout.tie(0);
 
-	int DEBUG = 2;
+	int DEBUG = 4;
 
 	if (DEBUG == 1) {
 		int n = BORDER, m = BORDER, k;
@@ -453,7 +451,7 @@ int main() {
 	}
 
 	if (DEBUG == 4) {
-		ThreadQueueA<int> q(16, 1024 * 1024 * 4, 2, 2);//1.37
+		ThreadQueueA<int> q(16, 1024 * 1024, 4, 4);//1.37
 		q.startThreads();
 		cout << q.returnSum() << endl;
 	}
