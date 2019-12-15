@@ -258,6 +258,8 @@ private:
 public:
 	ThreadQueueA(int size, int t_num, int p_num, int c_num) : t_num(t_num), p_num(p_num), c_num(c_num), size(size)
 	{
+		p_num = min(p_num, c_num);
+		c_num = min(p_num, c_num);
 		q.resize(size);
 	}
 
@@ -274,14 +276,14 @@ public:
 				std::memory_order_relaxed));
 			{
 				unique_lock<mutex> un(locktest1);
-				if (curSizeP.load() >= c_num * t_num)
-					return;
 				if (!q[(i % q.size())])
 					continue;
+				if (curSizeP.load() >= c_num * t_num)
+					return;
 				sum += q[(i % q.size())];
 				q[(i % q.size())] = 0;
+				curSizeP++;
 			}
-			curSizeP++;
 		}
 	}
 
@@ -298,13 +300,13 @@ public:
 				std::memory_order_relaxed));
 			{
 				unique_lock<mutex> un(locktest1);
-				if (curSizePH.load() >= p_num * t_num)
-					return;
 				if (q[(i % q.size())])
 					continue;
+				if (curSizePH.load() >= p_num * t_num)
+					return;
 				q[(i % q.size())]++;
+				curSizePH++;
 			}
-			curSizePH++;
 		}
 	}
 
@@ -445,16 +447,61 @@ int main() {
 	}
 
 	if (DEBUG == 3) {
-		ThreadQueue<uint8_t> q(4 * 1024 * 1024, 4, 4);//1.20
-		q.startThreads();
-		cout << q.returnSum() << endl;
+		int val = 1024;
+		for (int i = 0; i < 10000; ++i) {
+			ThreadQueue<uint8_t> q(val, 4, 4);//1.20
+			q.startThreads();
+		}
 	}
 
 	if (DEBUG == 4) {
-		ThreadQueueA<int> q(16, 1024 * 1024, 4, 4);//1.37
-		q.startThreads();
-		cout << q.returnSum() << endl;
+		for (int j = 1; j < 6; ++j) {
+			int cnt1 = 0, cnt2 = 0, cnt3 = 0;
+			int val = 1021 * j;
+			cout << val << endl;
+			for (int i = 0; i < 50; ++i) {
+				ThreadQueueA<int> q(1, val, 1, 1);//1.37
+				q.startThreads();
+				if (q.returnSum() != val) {
+					cout << "err!" << endl;
+					cout << q.returnSum() << endl;
+					cnt1++;
+				}
+			}
+			if (!cnt1)
+				cout << "success 1" << endl;
+			else
+				cout << "fail 1" << endl;
+			for (int i = 0; i < 50; ++i) {
+				ThreadQueueA<int> q(4, val, 2, 2);//1.37
+				q.startThreads();
+				if (q.returnSum() != val * 2) {
+					cout << "err!" << endl;
+					cout << q.returnSum() << endl;
+					cnt2++;
+				}
+			}
+			if (!cnt2)
+				cout << "success 2" << endl;
+			else
+				cout << "fail 2" << endl;
+			for (int i = 0; i < 50; ++i) {
+				ThreadQueueA<int> q(16, val, 4, 4);//1.37
+				q.startThreads();
+				if (q.returnSum() != val * 4) {
+					cout << "err!" << endl;
+					cout << q.returnSum() << endl;
+					cnt3++;
+				}
+			}
+			if (!cnt3)
+				cout << "success 3" << endl;
+			else
+				cout << "fail 3" << endl;
+		}
 	}
+
+	cout << "ended!" << endl;
 
 	return 0;
 }
